@@ -1,53 +1,175 @@
+<div align="center">
+
 # PulseCast Adaptive
 
-Broadcast text, images, audio and video to several simulated receivers. Each receiver gets the richest
-format its (simulated) connection can carry, and the text announcement always arrives.
+### Intelligent, bandwidth-aware announcements for unreliable networks
 
-- **Frontend:** React 18 + Vite, plain CSS, Recharts
-- **Backend:** Python FastAPI + WebSockets, Pillow for image compression
-- **Optional AI:** Groq summarises long announcements and translates between English and Tamil (templates/manual editing remain available without a key)
-- **QR tools:** Local text-to-QR generation; secret sharing is not part of the dashboard broadcast workflow
+**One announcement. Multiple delivery formats. Clear delivery visibility.**
 
+PulseCast Adaptive is a prototype communication platform that adapts announcement content to each receiver's simulated network capacity, combines AI-assisted summaries and translations, and helps operators track delivery and recover missed alerts.
+
+<p>
+  <img src="https://img.shields.io/badge/Frontend-React%20%2B%20Vite-61DAFB?logo=react&logoColor=black" alt="React and Vite">
+  <img src="https://img.shields.io/badge/Backend-FastAPI-009688?logo=fastapi&logoColor=white" alt="FastAPI">
+  <img src="https://img.shields.io/badge/Realtime-WebSockets-2563EB" alt="WebSockets">
+  <img src="https://img.shields.io/badge/AI-Groq%20(optional)-7C3AED" alt="Groq optional">
+  <img src="https://img.shields.io/badge/Status-Hackathon%20Prototype-F59E0B" alt="Hackathon prototype">
+</p>
+
+</div>
+
+---
+
+## Why PulseCast?
+
+During an urgent situation, not every recipient has the same connection. Sending a large image or video to someone on a weak network can delay useful information.
+
+PulseCast explores a different approach: **send the essential text first, then adapt supporting content to each receiver's available capacity.** Operators can inspect the selected delivery format, connection state, and whether a missed alert is waiting for recovery.
+
+> **Prototype note:** bandwidth and receiver connectivity are simulated in the current demo. They are not measurements of a recipient's actual mobile network, and this project is not a certified public-warning system.
+
+## Highlights
+
+| Feature | What it does |
+|---|---|
+| **Adaptive delivery** | Chooses text, audio, original media, or compressed media according to each receiver's configured bandwidth tier. |
+| **Text-first announcements** | Sends the essential text before supporting media, so the core message is not dependent on a large attachment. |
+| **AI-assisted summaries** | Uses the optional Groq integration to shorten long announcements while checking for numbers and times that may have been omitted. |
+| **English and Tamil support** | Provides reviewed bilingual templates and optional AI-assisted translation. Translation remains editable before sending. |
+| **Live reachability** | Separates receiver connection status from announcement delivery and acknowledgement status. |
+| **Missed-alert recovery** | Queues eligible alerts for disconnected receivers and retries after reconnection, within a bounded retry limit. |
+| **SMS notifications** | Can submit announcement text to configured recipients through a backend-only Twilio integration. Provider acceptance is distinct from handset delivery. |
+| **QR utilities** | Generates QR codes locally and offers a separate recipient manager for individual demo QR codes. |
+| **Delivery measurements** | Reports payload bytes and estimated savings against a high-tier baseline for completed deliveries. |
+
+## How it works
+
+```mermaid
+flowchart TD
+    A[Compose announcement] --> B[Optional summary or translation]
+    B --> C[Send announcement]
+    C --> D[Deliver essential text first]
+    D --> E{Receiver bandwidth tier}
+    E -->|High| F[Original supported media]
+    E -->|Medium| G[Compressed image or video frame]
+    E -->|Low| H[Text and supported audio]
+    E -->|Very low| I[Compact text]
+    F --> J[Update delivery status]
+    G --> J
+    H --> J
+    I --> J
+    J --> K{Receiver disconnected?}
+    K -->|Yes| L[Queue and retry after reconnection]
+    K -->|No| M[Show status in dashboard]
+    L --> M
 ```
-pulsecast-adaptive/
-├── README.md
-├── DEMO_SCRIPT.md
-├── backend/
-│   ├── requirements.txt
-│   ├── .env.example
-│   ├── app/
-│   │   ├── main.py      FastAPI routes + WebSocket endpoints
-│   │   ├── hub.py       receivers, per-tier delivery plans, simulated link, byte accounting
-│   │   ├── tiers.py     tier thresholds and rules (single source of truth)
-│   │   ├── compact.py   very-low-tier text compaction + "did the numbers survive?" check
-│   │   ├── media.py     image compression (Pillow)
-│   │   └── ai.py        optional Groq summariser with offline fallback
-│   └── tests/test_core.py
-└── frontend/
-    ├── package.json, vite.config.js, index.html
-    └── src/
-        ├── App.jsx, main.jsx, styles.css
-        ├── components/  NetworkControl, Composer, Dashboard, ReceiverPanel, SecureQrSharing, TierBadge
-        ├── hooks/       useConfig, useDashboardSocket, useReceiverSocket, useRecorder
-        └── lib/         tiers, format, socket, media
-```
 
-## Run it
+## Adaptive delivery tiers
 
-You need Python 3.10+ and Node 18+. Use two terminals.
+The current thresholds are defined in `backend/app/tiers.py`, the single source of truth for tier selection.
 
-**Terminal 1: backend**
+| Tier | Simulated capacity | Delivery plan |
+|---|---:|---|
+| **High** | ≥ 1,000 kbps | Text, audio, original image, original video |
+| **Medium** | 300–999 kbps | Text, audio, image compressed to a 480 px JPEG, one compressed video frame |
+| **Low** | 64–299 kbps | Text and audio; no images or video |
+| **Very low** | < 64 kbps | Compact text only (about 160 characters); attachments are not sent |
+
+Each receiver is handled independently, so a slow simulated connection does not hold up faster receivers. Actual media support depends on the uploaded format and browser capabilities.
+
+## Dashboard and delivery states
+
+PulseCast distinguishes these states rather than treating a successful send attempt as proof that a person read a message.
+
+- **Connected / Disconnected** — whether a receiver currently has an active WebSocket connection.
+- **Pending / Queued** — whether an announcement is waiting to be delivered.
+- **Delivered** — the application has received the relevant delivery confirmation.
+- **Acknowledged** — the receiver explicitly confirms the recovered announcement.
+- **Failed** — delivery could not complete within the configured retry limit.
+
+The current missed-alert queue and retry metadata are held in memory and are cleared when the backend restarts. The bounded text recovery history is separate.
+
+## Technology
+
+| Layer | Technology |
+|---|---|
+| Frontend | React 18, Vite, plain CSS, Recharts |
+| Backend | Python, FastAPI, WebSockets |
+| Media processing | Pillow for image compression |
+| AI assistance | Groq API (optional; configured on the backend) |
+| SMS channel | Twilio Python SDK (optional; credentials remain backend-only) |
+| QR generation | `qrcode.react`; standard QR generation happens in the browser |
+| Tests | Python `unittest` suite and frontend production build |
+
+## Run the project
+
+### Requirements
+
+- Python 3.10+
+- Node.js 18+
+- Optional: Groq API key for AI summaries and translation
+- Optional: Twilio account and eligible SMS sender for real SMS notifications
+
+### 1. Configure the backend
+
+From the project root:
 
 ```bash
 cd backend
 python -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-cp .env.example .env               # optional: add GROQ_API_KEY for summaries/translations
-uvicorn app.main:app --port 8000 --reload
 ```
 
-**Terminal 2: frontend**
+Activate the virtual environment:
+
+```powershell
+# Windows PowerShell
+.\.venv\Scripts\Activate.ps1
+```
+
+```bash
+# macOS / Linux
+source .venv/bin/activate
+```
+
+Install backend dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+Create `backend/.env` from the provided example if needed:
+
+```bash
+# Run from the backend directory
+copy .env.example .env
+```
+
+On macOS/Linux, use `cp .env.example .env`.
+
+Add only the provider settings you intend to use. Example variable names:
+
+```dotenv
+GROQ_API_KEY=your_groq_api_key
+GROQ_MODEL=llama-3.1-8b-instant
+
+TWILIO_ACCOUNT_SID=your_twilio_account_sid
+TWILIO_AUTH_TOKEN=your_twilio_auth_token
+TWILIO_PHONE_NUMBER=your_twilio_sender_number
+Kabil_number=+91XXXXXXXXXX
+Monesh_number=+91XXXXXXXXXX
+```
+
+Replace placeholders with your own values. Do **not** commit `.env` or place provider secrets in frontend variables. Keep `.env` ignored by Git.
+
+Start the backend:
+
+```bash
+uvicorn app.main:app --reload --port 8000
+```
+
+### 2. Start the frontend
+
+Open a second terminal:
 
 ```bash
 cd frontend
@@ -55,175 +177,117 @@ npm install
 npm run dev
 ```
 
-Open <http://localhost:5173>. Vite proxies `/api` and `/ws` to port 8000, so nothing else needs configuring.
-Camera and microphone capture work on `localhost`; on any other host the browser requires HTTPS.
+Open the development URL printed by Vite. The frontend proxies `/api` and `/ws` requests to the backend port configured in the Vite setup.
 
-Run the backend tests (they need only Pillow, no FastAPI):
+Camera and microphone capture are available on `localhost`; other hostnames generally require HTTPS for browser media permissions.
+
+### 3. Run backend tests
+
+From the `backend` directory, with the project's dependencies installed:
 
 ```bash
-cd backend && python -m unittest discover -s tests -v
+python -m unittest discover -s tests -v
 ```
 
-## How adaptation works
+Build the frontend:
 
-The master slider (and each receiver's own slider) sets a simulated capacity in kbps. The receiver reports it
-over its WebSocket and the server picks a tier with a plain threshold rule (`backend/app/tiers.py`):
-
-| Tier | Capacity | What the receiver gets |
-|---|---|---|
-| High | 1,000 kbps and up | Text, audio, original image, original video |
-| Medium | 300 to 999 | Text, audio, image compressed to 480 px JPEG, a single compressed frame in place of the video |
-| Low | 64 to 299 | Text and audio. No images, no video |
-| Very low | below 64 | One compact text frame (about 160 characters). Attachments are counted but not sent |
-
-Delivery order per receiver is: announcement text first, then audio, then image, then video. Receivers are
-independent, so a slow one never delays a fast one.
-
-**Message priorities.** The composer treats the existing announcement field as the required primary message and
-also supports separately editable secondary and tertiary messages. Primary is sent first on every tier. Secondary
-text is sent on medium and low tiers when enabled; tertiary text is reserved for high-tier capacity. Very-low
-receivers receive only the compact primary summary, with withheld priorities reported in the receiver panel.
-Priority frames are accounted for separately in live dashboard snapshots (`priority_bytes`) while aggregate byte
-counts and savings remain unchanged.
-
-**Graceful fallback.** The text frame is always sent first and on its own. After it, any media that fails is
-replaced by a small `media_failed` frame with a reason, and the receiver shows the reason next to the text.
-Media fails when: the "fail all media" test box is ticked, the simulated transfer would take over 20 seconds,
-or the socket drops mid-delivery. A receiver whose socket drops while the server stays up reconnects with backoff and fetches any
-announcements it missed as plain text from `GET /api/announcements`.
-
-**AI configuration.** The backend always loads `backend/.env` from its own project path, so it works whether
-Uvicorn is started from the repository root or from `backend/`. Set `GROQ_API_KEY` there and restart the backend.
-`GET /api/config` reports only `ai_configured`/`ai_enabled` booleans and the model name; the key is never returned.
-Both summarization and translation use this same backend-only key and send it as a Bearer token. Missing keys,
-authentication failures, and provider failures are reported explicitly; summarization still uses the safe offline
-fallback, while translation requires a reviewed template or manual text when Groq is unavailable.
-
-**AI summary (optional).** "Summarize for very low bandwidth" calls Groq (`GROQ_MODEL`, default
-`llama-3.1-8b-instant`) with a prompt that requires keeping numbers, times, places, names and actions. The
-backend then checks that every number or time in the original still appears in the summary and warns about
-any that do not. You can edit the summary before sending. Without a key, or if the call fails, it falls back
-to a rule-based extractive summary and says so. If you send without summarising, very-low receivers get the
-same extractive compaction.
-
-## Twilio SMS notifications
-
-The existing **Send Announcement** action keeps its local WebSocket broadcast and additionally submits the
-announcement text to configured team members through the backend-only Twilio service. Configure these
-variables in `backend/.env` using real local values, and never commit them:
-
-```dotenv
-TWILIO_ACCOUNT_SID=your_actual_account_sid
-TWILIO_AUTH_TOKEN=your_actual_auth_token
-TWILIO_PHONE_NUMBER=+15005550006
-Kabil_number=+91XXXXXXXXXX
-Monesh_number=+91XXXXXXXXXX
+```bash
+cd frontend
+npm run build
 ```
 
-The variable names, including the capitalization of `Kabil_number` and `Monesh_number`, are required.
-The existing `.gitignore` excludes `.env`, and no Twilio credential or phone number is sent to React.
-`/api/config` reports only whether SMS is configured and the recipient display names.
+## Twilio SMS behavior
 
-The composer reports each recipient as **accepted** only when Twilio accepts the API request. This is not
-the same as handset delivery; no delivery claim is shown unless a provider status callback is configured.
-Missing configuration, invalid E.164 numbers, invalid credentials, provider errors, and rate limits are
-reported per recipient while the local announcement remains available.
+When Twilio is configured, the existing **Send Announcement** action can also submit the announcement text to the configured team recipients.
 
-For a manual live test, which can incur Twilio charges, start the backend and frontend, configure the
-real values above, enter an announcement, and click **Send Announcement** once. Automated tests mock
-Twilio and do not send SMS.
+- SMS is sent from the backend; Twilio credentials are never sent to React.
+- The dashboard reports results per recipient.
+- **Accepted by Twilio** does not necessarily mean the handset received the message.
+- Trial-account restrictions, sender eligibility, destination-country rules, and messaging registration may apply.
+- Real SMS may incur charges. Automated tests should use mocked Twilio responses.
 
-## What the numbers mean
+Local WebSocket broadcast status and SMS status are separate channels. An SMS failure should not be represented as a successful SMS delivery just because the local announcement was broadcast.
 
-- **Bytes sent** is the UTF-8 length of every frame the server passed to `send_text`. Media travels as base64
-  inside JSON, and that 33% overhead is counted. Each receiver panel also counts the bytes it received itself,
-  so you can compare the two.
-- **Estimated savings** compare bytes actually sent with what a high-tier receiver would have been sent for the
-  same broadcasts (original media, same framing). That baseline is a counterfactual, hence "estimated".
-  Only deliveries that completed are compared.
-- **Bitrate** is the capacity you set on the slider. It is simulated, not measured. Each frame waits
-  `size × 8 / capacity` seconds before sending (real waiting is capped at 3 s per frame to keep demos
-  quick; the uncapped figure is what the receiver reports as "about N s at X kbps").
-- Nothing in the dashboard is pre-filled. With no broadcasts every counter is zero.
+## AI summaries and translation
 
-## WebSocket and REST reference
+The optional Groq integration uses `GROQ_API_KEY` and optionally `GROQ_MODEL` from `backend/.env`. The key is read by the backend and is not returned to the frontend.
 
-| Endpoint | Purpose |
+For very-low-bandwidth announcements, the summary workflow checks whether numbers and times from the original appear in the summary and warns about missing items. Review the summary before sending. If the provider is unavailable, the app can fall back to an extractive summary; translation requires a reviewed template or manually entered text when AI translation is unavailable.
+
+## QR tools and security
+
+The standard **QR Code Generator** is a local utility for announcement text, URLs, short strings, or code snippets. QR generation does not require an AI call.
+
+The separate **Enter Recipient Details** manager can create an individual demo QR for each recipient. These codes use recipient metadata and an opaque, browser-generated token with an expiry; optional contact and demo credential fields are not encoded in the QR.
+
+**Do not use this prototype to distribute real passwords or production credentials.** QR tokens are demo access data and should be shared carefully. Use an established password manager or secrets-management solution for real credentials.
+
+## API and real-time interfaces
+
+| Interface | Purpose |
 |---|---|
-| `GET /api/config` | Tiers, slider range, limits, whether AI is enabled |
-| `POST /api/broadcast` | Multipart: `text` (required), `summary`, `image`, `audio`, `video`, `poster`, `simulate_media_failure` |
-| `POST /api/summarize` | `{ "text": "..." }` returns `{ summary, source, warning, missing }` |
-| `GET /api/announcements?since=N` | Text-only recovery for reconnecting receivers |
-| `POST /api/reset` | Zero all counters |
-| `WS /ws/receiver/{id}?kbps=N` | A receiver. Send `{"type":"set_bandwidth","kbps":N}` to change capacity |
-| `WS /ws/dashboard` | Live `snapshot` messages: receivers, totals, per-broadcast history |
+| `GET /api/config` | Returns configuration metadata, tier rules, limits, and enabled-feature status |
+| `POST /api/broadcast` | Broadcasts an announcement and supported attachments |
+| `POST /api/summarize` | Returns an announcement summary and related warnings |
+| `GET /api/announcements?since=N` | Returns text recovery history for reconnecting receivers |
+| `POST /api/reset` | Resets in-memory demo counters |
+| `WS /ws/receiver/{id}?kbps=N` | Receiver WebSocket; accepts bandwidth updates |
+| `WS /ws/dashboard` | Live dashboard snapshots and receiver state |
 
-Frames to receivers: `announcement` (text + attachment plan), `media` (base64 payload), `media_failed`, and the
-compact very-low frame `{"t":"a","i":id,"m":"text","x":withheldCount}`.
+The broadcast endpoint accepts multipart fields including `text`, `summary`, `image`, `audio`, `video`, `poster`, and `simulate_media_failure`. Check the current FastAPI route definitions for the exact schema before building another client.
 
-## Design decisions and limits
+## Project structure
 
-- **Simulated receivers.** Receivers are panels in the same browser, each with its own WebSocket. The network
-  is simulated by delays on the server; no real throttling happens.
-- **Video is not transcoded.** As requested, adaptation is rule-based. "Occasional video frames" means the
-  browser grabs one frame from the video with a canvas and the server compresses it. If the browser cannot
-  decode the video, the medium tier simply skips it.
-- **Uploaded and recorded clips, not live streams.** Audio and video clips record for up to 10 s at low
-  bitrates (32 kbps audio, 500 kbps video).
-- **Single process, in-memory state.** Restarting the backend clears stats and restarts broadcast numbering at 1, so
-  keep receivers' feeds and the server in step by refreshing the page after a restart. Fine for a demo, not for production.
-- **Recovery traffic is not counted** in the dashboard, since it travels over HTTP rather than the receiver socket.
-- Uploads are limited to 25 MB each and announcements to 5,000 characters.
+```text
+pulsecast-adaptive/
+├── README.md
+├── DEMO_SCRIPT.md
+├── requirements.txt
+├── backend/
+│   ├── .env.example
+│   ├── requirements.txt
+│   ├── app/
+│   │   ├── main.py
+│   │   ├── hub.py
+│   │   ├── tiers.py
+│   │   ├── compact.py
+│   │   ├── media.py
+│   │   ├── ai.py
+│   │   └── ...
+│   └── tests/
+└── frontend/
+    ├── package.json
+    └── src/
+        ├── App.jsx
+        ├── components/
+        ├── hooks/
+        └── lib/
+```
+
+## Current limitations
+
+- **Simulated connectivity:** bandwidth is selected through controls and emulated with server-side delays; it is not actual network-speed measurement.
+- **Single-process demo state:** receiver state, counters, and recovery queue metadata are held in memory and reset on backend restart.
+- **Video adaptation:** medium tier uses a compressed frame rather than full video transcoding.
+- **Recovery accounting:** recovery traffic over HTTP is not included in the WebSocket byte counters.
+- **Not a certified emergency system:** do not rely on this prototype as the sole channel for life-critical public warnings.
 
 ## Troubleshooting
 
-- *"The backend is not reachable"* in the browser: start uvicorn on port 8000, then click Retry.
-- *Record buttons do nothing / permission error*: allow camera and microphone for `localhost`, or upload files instead.
-- *Video never shows a preview frame at medium tier*: some codecs cannot be decoded for frame capture. Try an MP4 (H.264) or WebM.
-- *AI button says "Offline summary"*: set `GROQ_API_KEY` in `backend/.env` and restart uvicorn.
+| Issue | What to check |
+|---|---|
+| Backend unreachable | Confirm the FastAPI process is running and the frontend proxy points to the correct backend port. |
+| AI summary unavailable | Verify `GROQ_API_KEY` in `backend/.env`, then restart the backend. |
+| SMS rejected | Check Twilio's message logs, sender eligibility, destination format, trial restrictions, and applicable local messaging rules. |
+| Camera/microphone unavailable | Grant browser permission; use `localhost` or an HTTPS origin. |
+| Medium-tier video preview missing | Try a browser-supported MP4 (H.264) or WebM clip. |
+| Recovered queue cleared | The current queue is in memory and does not survive backend restarts. |
 
-## Multilingual announcements
+---
 
-The Broadcast composer labels each announcement as English or Tamil, provides reviewed flood, cyclone,
-evacuation, transport-cancellation, and public-safety templates in both languages, and can ask the
-backend Groq integration to translate the current draft. Translation results remain editable until Send.
-If Groq is unavailable, the composer reports the error without guessing a translation; choose a template
-or enter the message manually instead. Configure the existing backend integration with `GROQ_API_KEY`
-and optionally `GROQ_MODEL` in `backend/.env`. The key is never sent to the frontend.
+<div align="center">
 
-## Targeted delivery
+**PulseCast Adaptive**  
+*Make every byte count. Keep the message moving.*
 
-Use the **Send to Receivers** panel to choose exactly which simulated receivers should receive the
-announcement. Select All and Deselect All are available, and the panel reports per-receiver results.
-“Sent to connected receiver” confirms WebSocket transmission to that receiver; it does not claim that a
-person has read the message. Offline or failed receivers are reported instead of being shown as successful.
-Targeted announcements are also filtered from reconnect recovery feeds for receivers that were not selected.
-
-## QR Code Generator
-
-The dashboard's **QR Code Generator** is a local-only utility. Enter an announcement, URL,
-short string, or code snippet and choose **Generate QR Code**. The frontend uses `qrcode.react` to create a
-standard QR code locally from the exact input; no Groq call or backend request is needed. The generated canvas
-can be scanned by a compatible phone or QR reader, copied as text, or downloaded as a PNG. Code is rendered
-as text only and is never executed. Empty input is rejected, and content over the conservative QR capacity
-limit is rejected with a size message. Physical-phone scanning depends on the phone's camera/scanner.
-
-Beside the standard QR portal, **Enter Recipient Details** opens an independent recipient manager. Add any
-number of recipients with unique IDs, then generate one QR per recipient or download individual PNGs. These
-codes contain only the recipient name/ID, a browser-generated opaque access token, and a 15-minute expiry;
-optional contact and demo credential fields are never encoded. Treat the recipient token as demo access data
-and share real credentials through a separate trusted channel.
-
-## Delivery visibility and missed alerts
-
-The dashboard now includes **Adaptive Delivery Summary**, which reports the actual tier and payload choice
-for each receiver using the existing simulated bandwidth thresholds. It also includes **Live Reachability**,
-which separates WebSocket connection state from delivery state and shows connected, weak, disconnected,
-pending, delivered, and acknowledged statuses.
-
-If a selected receiver is offline or its connection fails during delivery, the backend queues the alert with
-a bounded retry count and replays it after that receiver reconnects using the receiver's current bandwidth
-tier. Recovered messages show an **Acknowledge** action in the receiver panel. The acknowledgement is an
-explicit receiver event and is not inferred from connection or server-send success. Eligible recovered
-messages also expose **Retry Now**. Pending queue and retry metadata are held in memory, so they are cleared
-when the backend process restarts; the existing text recovery history remains bounded as before.
+</div>
